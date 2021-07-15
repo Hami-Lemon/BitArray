@@ -2,8 +2,6 @@ package com.github.lemon;
 
 import org.junit.Test;
 
-import static org.junit.Assert.*;
-
 /**
  * <p> 创建时间 2021/7/15 </p>
  *
@@ -13,9 +11,8 @@ import static org.junit.Assert.*;
 public class BitArrayTest {
 
     @Test
-    public void test(){
-        BitArray bitArray = new BitArray();
-        bitArray.active(0);
+    public void test() {
+        BitArray bitArray = BitArray.valueOf(2L);
         System.out.println(bitArray);
     }
 

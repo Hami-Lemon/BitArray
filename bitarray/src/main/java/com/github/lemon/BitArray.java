@@ -4,30 +4,46 @@ package com.github.lemon;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.IllegalFormatConversionException;
 
 /**
- * 一个比特数组，可操作的每一个基本元素为一个比特位。
+ * 一个比特数组，可操作的每一个最小元素为一个比特位。
+ * <p>
+ * 在此类中使用byte数组保存比特位数据，因此也可以一个字节一个字节的操作数据
+ * <p>
+ * 注意：在byte数组中低字节的数据在前，高字节的数据在后，（注意这里说的是字节，不是比特位）
+ * 例如：<pre>
+ *     00000011 00000010 00000001 00000000   在数组中的存储顺序为
+ *     00000000 00000001 00000010 00000011</pre>
  *
  * @author Hami Lemon
  * @version v1.0
  */
 public class BitArray implements Cloneable, Serializable {
     /**
-     * bits数组中每个元素的比特数
-     */
-    private final static int PER_BIT = 8;
-    /**
-     * PER_BIT是 2 PER_BIT_OF_POWER 次幂
+     * PER_BIT是 2 的 PER_BIT_OF_POWER 次幂
      */
     private final static int PER_BIT_OF_POWER = 3;
-
     /**
-     * 实际使用的比特位数
+     * bits数组中每个元素的比特数
+     */
+    private final static int PER_BIT = 1 << PER_BIT_OF_POWER;
+    /**
+     * 实际使用的比特位数，会根据初始化BitArray设定一个初始值，
+     * 而后，当发生扩容操作时，会将该值更新。
+     * <p>
+     * 例如：当初始化长度为4时，该值为4，然后调用方法<b>active(9)</b>，
+     * 则会触发扩容操作，并且该值会更新为9
+     * </p>
      */
     private int size;
 
-    private final byte[] bits;
+    //保存数据的数组
+    private byte[] bits;
 
+    //执行逻辑运算的操作接口
+    @FunctionalInterface
     private interface Operation {
         int operate(byte v1, byte v2);
     }
@@ -82,6 +98,47 @@ public class BitArray implements Cloneable, Serializable {
         this(str.getBytes(charset));
     }
 
+    public static BitArray valueOf(byte val) {
+        return valueOf(val, 1);
+    }
+
+    public static BitArray valueOf(short val) {
+        return valueOf(val, 2);
+    }
+
+    public static BitArray valueOf(int val) {
+        return valueOf(val, 4);
+    }
+
+    public static BitArray valueOf(long val) {
+        return valueOf(val, 8);
+    }
+
+    public static BitArray valueOf(String str) {
+        int len = str.length();
+        BitArray bitArray = new BitArray(len);
+        for (int i = len - 1; i >= 0; i--) {
+            char c = str.charAt(i);
+            int pos = len - 1 - i;
+            if (c == '1')
+                bitArray.active(pos);
+            else if (c == '0')
+                bitArray.passive(pos);
+            else
+                throw new IllegalArgumentException("含有非法字符");
+        }
+        return bitArray;
+    }
+
+    private static BitArray valueOf(long val, int byteNum) {
+        BitArray bitArray = new BitArray(byteNum << PER_BIT_OF_POWER);
+        bitArray.bits[0] = (byte) val;
+        for (int i = 1; i < byteNum; i++) {
+            bitArray.bits[i] = (byte) (val = (val >>> PER_BIT));
+        }
+        return bitArray;
+    }
+
     /**
      * 将某一比特位置 1
      *
@@ -91,6 +148,12 @@ public class BitArray implements Cloneable, Serializable {
         set(pos, true);
     }
 
+    /**
+     * 将第几个字节的第几位置1
+     *
+     * @param index    第几个字节，从 0 开始
+     * @param bitIndex 该字节的第几个比特位，[0,7]
+     */
     public void active(int index, int bitIndex) {
         set(index, bitIndex, true);
     }
@@ -104,6 +167,12 @@ public class BitArray implements Cloneable, Serializable {
         set(pos, false);
     }
 
+    /**
+     * 将第几个字节的第几位置0
+     *
+     * @param index    第几个字节，从 0 开始
+     * @param bitIndex 该字节的第几个比特位，[0,7]
+     */
     public void passive(int index, int bitIndex) {
         set(index, bitIndex, false);
     }
@@ -126,26 +195,59 @@ public class BitArray implements Cloneable, Serializable {
      * 设置第几个字节上的第几个比特位的值
      *
      * @param index    第几个字节，从 0 开始
-     * @param bitIndex 该字节上的第几个比特位，[0,7]
+     * @param bitIndex 该字节上的第几个比特位，<b>[0,7]</b>
      * @param val      设置的值，true为1，false为0
      */
 
     public void set(int index, int bitIndex, boolean val) {
-        if (bitIndex < 0 || bitIndex > 7) throw new IllegalArgumentException("错误的比特位索引:" + bitIndex);
+        if (bitIndex < 0 || bitIndex > 7)
+            throw new IllegalArgumentException("错误的索引: bitIndex应属于[0,7],但实际为：" + bitIndex);
+        if (index >= bits.length) {
+            //长度增加到所需的字节数
+            resize(index + 1);
+        }
+        size = Integer.max(index << PER_BIT_OF_POWER + bitIndex, size);
+
         if (val)
             bits[index] |= 1 << bitIndex;
         else
             bits[index] &= ~(1 << bitIndex);
     }
 
+    /**
+     * <p>
+     * 设置第几个字节上的数据为给定的值，由于最高位为符号位，
+     * 所以当最高比特为1时，设置的值应该是一个负数,并且保存的二制数为它的补码，
+     * 也可以使用<b>setNthByte(int nth, int val)</b>重载方法，以避免负数和补码的问题
+     * </p>
+     * 提示：在java中<b>1000 0000</b> 对应的十进制数为 <b>(byte)-128</b>
+     *
+     * @param nth 第几个字节，从0开始
+     * @param val 设置的值
+     */
     public void setNthByte(int nth, byte val) {
+        if (nth >= bits.length) {
+            size = nth << PER_BIT_OF_POWER;
+            resize(nth + 1);
+        }
         bits[nth] = val;
     }
 
+    /**
+     * 设置第几个字节上的数据为给定的值。
+     * 对于int类型数据，只有最后一个字节上的数据为有效数据。
+     *
+     * @param nth 第几个字节，从0开始
+     * @param val 设置的值
+     */
     public void setNthByte(int nth, int val) {
         setNthByte(nth, (byte) val);
     }
 
+    //扩容操作，target为目标字节数长度，默认用0填充
+    private void resize(int target) {
+        bits = Arrays.copyOf(bits, target);
+    }
 
     /**
      * 获取对应比特位上的值，返回true时为1，返回false时为0
@@ -154,6 +256,8 @@ public class BitArray implements Cloneable, Serializable {
      * @return 对应的值，true为1，false为0
      */
     public boolean get(int pos) {
+        if (pos > size)
+            throw new IndexOutOfBoundsException("获取比特位：" + pos + ",但实际只有" + size);
         int index = pos >> PER_BIT_OF_POWER;
         int bitIndex = pos & (PER_BIT - 1);
         return getFromByte(bitIndex, bits[index]);
@@ -170,15 +274,34 @@ public class BitArray implements Cloneable, Serializable {
         return (b & (1 << bitIndex)) != 0;
     }
 
+    /**
+     * 获取第几个字节上的数据
+     *
+     * @param nth 第几个字节，从0开始
+     * @return 对应的byte数据, 由于byte的最高位为符号位，
+     * 所以如果需要获取到其对应的数字表示且最高位不作为符号位时，应使用int类型接收
+     */
     public byte getNthByte(int nth) {
-        if (nth > bits.length) throw new IllegalArgumentException("超过最大的字节数");
+        if (nth > bits.length)
+            throw new IndexOutOfBoundsException("获取字节位：" + nth + ",但实际只有 " + bits.length);
         return bits[nth];
     }
 
+    /**
+     * 获取二进制串所占用的字节数，结果为<b>size / 8</b>的上取整
+     *
+     * @return 二进制串所占用的字节数
+     */
     public int getByteSize() {
         return bits.length;
     }
 
+    /**
+     * 获取实际使用的比特位长度，会根据初始化BitArray设定一个初始值，
+     * 而后，当发生扩容操作时，会将该值更新
+     *
+     * @return 实际使用的比特位长度
+     */
     public int getBitSize() {
         return size;
     }
@@ -203,9 +326,11 @@ public class BitArray implements Cloneable, Serializable {
      *   = 00001010</pre>
      *
      * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
      */
-    public void and(BitArray bitArray) {
+    public BitArray and(BitArray bitArray) {
         cal(bitArray, (v1, v2) -> v1 & v2);
+        return this;
     }
 
     /**
@@ -216,9 +341,11 @@ public class BitArray implements Cloneable, Serializable {
      *   = 11001111</pre>
      *
      * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
      */
-    public void or(BitArray bitArray) {
+    public BitArray or(BitArray bitArray) {
         cal(bitArray, ((v1, v2) -> v1 | v2));
+        return this;
     }
 
     /**
@@ -226,27 +353,16 @@ public class BitArray implements Cloneable, Serializable {
      * 例：<pre>
      *     10001111 not
      *   = 01110000</pre>
+     *
+     * @return 返回this, 以便链式调用
      */
-    public void not() {
+    public BitArray not() {
         BitArray r = new BitArray(size);
         byte[] bytes = bits;
         for (int i = 0; i < bytes.length; i++) {
             r.setNthByte(i, ~bytes[i]);
         }
-
-    }
-
-    /**
-     * 将当前BitArray和给定的BitArray进行或非运算，对每一个二进制位，都为0时结果为1，等价于对或运算取反。
-     * 例：<pre>
-     *     10001111 nor
-     *     01001010
-     *   = 00110000</pre>
-     *
-     * @param bitArray 一个BitArray
-     */
-    public void nor(BitArray bitArray) {
-        cal(bitArray, (v1, v2) -> ~(v1 | v2));
+        return this;
     }
 
     /**
@@ -257,35 +373,56 @@ public class BitArray implements Cloneable, Serializable {
      *   = 11000101</pre>
      *
      * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
      */
-    public void xor(BitArray bitArray) {
+    public BitArray xor(BitArray bitArray) {
         cal(bitArray, (v1, v2) -> v1 ^ v2);
+        return this;
+    }
+
+    /**
+     * 将当前BitArray和给定的BitArray进行或非运算，对每一个二进制位，都为0时结果为1，等价于对或运算取反。
+     * 例：<pre>
+     *     10001111 nor
+     *     01001010
+     *   = 00110000</pre>
+     *
+     * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
+     */
+    public BitArray nor(BitArray bitArray) {
+        cal(bitArray, (v1, v2) -> ~(v1 | v2));
+        return this;
     }
 
     /**
      * 将当前BitArray和给定的BitArray进行异或非运算，对每一个二进制位，两个值相同时结果为1，等价于对异或运算取反。
      * 例：<pre>
-     *     10001111 xnor
+     *     10001111 notXor
      *     01001010
      *   = 00111010</pre>
      *
      * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
      */
-    public void notXor(BitArray bitArray) {
+    public BitArray notXor(BitArray bitArray) {
         cal(bitArray, (v1, v2) -> ~(v1 ^ v2));
+        return this;
     }
 
     /**
      * 将当前BitArray和给定的BitArray进行与非运算，对每一个二进制位，两个值不都为1时结果为1，等价于对与运算求反。
      * 例：<pre>
-     *     10001111 nand
+     *     10001111 notAnd
      *     01001010
      *   = 11110101</pre>
      *
      * @param bitArray 一个BitArray
+     * @return 返回this, 以便链式调用
      */
-    public void notAnd(BitArray bitArray) {
+    public BitArray notAnd(BitArray bitArray) {
         cal(bitArray, (v1, v2) -> ~(v1 & v2));
+        return this;
     }
 
     @Override
@@ -299,11 +436,6 @@ public class BitArray implements Cloneable, Serializable {
             }
             builder.append(" ");
         }
-        /*
-         在bits数组中，低字节在前，高字节在后（注意是字节，不是比特位）
-         例如：00000011 00000010 00000001 00000000在数组中的存储顺序为
-              00000000 00000001 00000010 00000011
-         */
         return builder.reverse()
                 //删除开头的空格
                 .delete(0, 1)
