@@ -1,5 +1,6 @@
 package com.github.lemon;
 
+import org.assertj.core.api.Assertions;
 import org.junit.Test;
 
 /**
@@ -11,9 +12,12 @@ import org.junit.Test;
 public class BitArrayTest {
 
     @Test
-    public void test() {
-        BitArray bitArray = BitArray.valueOf(2L);
-        System.out.println(bitArray);
+    public void testNot() {
+        BitArray bitArray = new BitArray(8);
+        bitArray.setNthByte(0, 0xf1)
+                .not();
+        Assertions.assertThat(bitArray.toString())
+                .isEqualTo("00001110");
     }
 
 }

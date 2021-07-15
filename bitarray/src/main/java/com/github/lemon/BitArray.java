@@ -5,7 +5,6 @@ import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.IllegalFormatConversionException;
 
 /**
  * 一个比特数组，可操作的每一个最小元素为一个比特位。
@@ -143,9 +142,10 @@ public class BitArray implements Cloneable, Serializable {
      * 将某一比特位置 1
      *
      * @param pos 比特位的索引，从 0 开始
+     * @return 返回this, 以便链式调用
      */
-    public void active(int pos) {
-        set(pos, true);
+    public BitArray active(int pos) {
+        return set(pos, true);
     }
 
     /**
@@ -153,18 +153,20 @@ public class BitArray implements Cloneable, Serializable {
      *
      * @param index    第几个字节，从 0 开始
      * @param bitIndex 该字节的第几个比特位，[0,7]
+     * @return 返回this, 以便链式调用
      */
-    public void active(int index, int bitIndex) {
-        set(index, bitIndex, true);
+    public BitArray active(int index, int bitIndex) {
+        return set(index, bitIndex, true);
     }
 
     /**
      * 将某一比特位置 0
      *
      * @param pos 比特位的索引，从 0 开始
+     * @return 返回this, 以便链式调用
      */
-    public void passive(int pos) {
-        set(pos, false);
+    public BitArray passive(int pos) {
+        return set(pos, false);
     }
 
     /**
@@ -172,9 +174,10 @@ public class BitArray implements Cloneable, Serializable {
      *
      * @param index    第几个字节，从 0 开始
      * @param bitIndex 该字节的第几个比特位，[0,7]
+     * @return 返回this, 以便链式调用
      */
-    public void passive(int index, int bitIndex) {
-        set(index, bitIndex, false);
+    public BitArray passive(int index, int bitIndex) {
+        return set(index, bitIndex, false);
     }
 
     /**
@@ -182,13 +185,14 @@ public class BitArray implements Cloneable, Serializable {
      *
      * @param pos 比特位的索引，从 0 开始
      * @param val 设置的值，为true时设为1，为false时设为0
+     * @return 返回this, 以便链式调用
      */
-    public void set(int pos, boolean val) {
+    public BitArray set(int pos, boolean val) {
         //计算这一个比特位是第几个字节，从0开始
         int index = pos >> PER_BIT_OF_POWER;
         //计算这一个比对位对应这一个字节中的第几位，从0开始
         int bitIndex = pos & (PER_BIT - 1);
-        set(index, bitIndex, val);
+        return set(index, bitIndex, val);
     }
 
     /**
@@ -197,9 +201,10 @@ public class BitArray implements Cloneable, Serializable {
      * @param index    第几个字节，从 0 开始
      * @param bitIndex 该字节上的第几个比特位，<b>[0,7]</b>
      * @param val      设置的值，true为1，false为0
+     * @return 返回this, 以便链式调用
      */
 
-    public void set(int index, int bitIndex, boolean val) {
+    public BitArray set(int index, int bitIndex, boolean val) {
         if (bitIndex < 0 || bitIndex > 7)
             throw new IllegalArgumentException("错误的索引: bitIndex应属于[0,7],但实际为：" + bitIndex);
         if (index >= bits.length) {
@@ -212,6 +217,11 @@ public class BitArray implements Cloneable, Serializable {
             bits[index] |= 1 << bitIndex;
         else
             bits[index] &= ~(1 << bitIndex);
+        return this;
+    }
+
+    public BitArray setRange(int start, int end, boolean val) {
+        return null;
     }
 
     /**
@@ -224,13 +234,15 @@ public class BitArray implements Cloneable, Serializable {
      *
      * @param nth 第几个字节，从0开始
      * @param val 设置的值
+     * @return 返回this, 以便链式调用
      */
-    public void setNthByte(int nth, byte val) {
+    public BitArray setNthByte(int nth, byte val) {
         if (nth >= bits.length) {
             size = nth << PER_BIT_OF_POWER;
             resize(nth + 1);
         }
         bits[nth] = val;
+        return this;
     }
 
     /**
@@ -239,9 +251,10 @@ public class BitArray implements Cloneable, Serializable {
      *
      * @param nth 第几个字节，从0开始
      * @param val 设置的值
+     * @return 返回this, 以便链式调用
      */
-    public void setNthByte(int nth, int val) {
-        setNthByte(nth, (byte) val);
+    public BitArray setNthByte(int nth, int val) {
+        return setNthByte(nth, (byte) val);
     }
 
     //扩容操作，target为目标字节数长度，默认用0填充
@@ -357,10 +370,8 @@ public class BitArray implements Cloneable, Serializable {
      * @return 返回this, 以便链式调用
      */
     public BitArray not() {
-        BitArray r = new BitArray(size);
-        byte[] bytes = bits;
-        for (int i = 0; i < bytes.length; i++) {
-            r.setNthByte(i, ~bytes[i]);
+        for (int i = 0; i < bits.length; i++) {
+            bits[i] = (byte) ~bits[i];
         }
         return this;
     }
