@@ -114,6 +114,8 @@ public class BitArray implements Cloneable, Serializable {
     }
 
     public static BitArray valueOf(String str) {
+        //删除空白符
+        str = str.replaceAll("\\s", "");
         int len = str.length();
         BitArray bitArray = new BitArray(len);
         for (int i = len - 1; i >= 0; i--) {
@@ -159,6 +161,10 @@ public class BitArray implements Cloneable, Serializable {
         return set(index, bitIndex, true);
     }
 
+    public BitArray activeRange(int start, int end) {
+        return setRange(start, end, true);
+    }
+
     /**
      * 将某一比特位置 0
      *
@@ -178,6 +184,10 @@ public class BitArray implements Cloneable, Serializable {
      */
     public BitArray passive(int index, int bitIndex) {
         return set(index, bitIndex, false);
+    }
+
+    public BitArray passiveRange(int start, int end) {
+        return setRange(start, end, false);
     }
 
     /**
@@ -211,7 +221,7 @@ public class BitArray implements Cloneable, Serializable {
             //长度增加到所需的字节数
             resize(index + 1);
         }
-        size = Integer.max(index << PER_BIT_OF_POWER + bitIndex, size);
+        size = Integer.max((index << PER_BIT_OF_POWER) + bitIndex, size);
 
         if (val)
             bits[index] |= 1 << bitIndex;
@@ -221,7 +231,52 @@ public class BitArray implements Cloneable, Serializable {
     }
 
     public BitArray setRange(int start, int end, boolean val) {
-        return null;
+        edgeCheck(start, end);
+
+        //start 和 end 所在的字节位
+        int si = start >> PER_BIT_OF_POWER, ei = --end >> PER_BIT_OF_POWER;
+        //扩容
+        if (ei >= bits.length) {
+            size = end;
+            resize(ei + 1);
+        }
+        int v = val ? 0xff : 0x00;
+        //设置中间的整字节
+        for (int i = si + 1; i < ei; i++) {
+            bits[i] = (byte) v;
+        }
+
+        //设置第si和ei字节
+        int sv = (byte) (0xff << (start & (PER_BIT - 1)));
+        int moveNum = (byte) (~(end & (PER_BIT - 1)) & 0x07); //最后与0000 0111相与，让前5位置0
+        int ev = (byte) (0xff >>> moveNum);
+
+        if (si == ei) {
+            v = sv & ev;
+            if (val) bits[si] |= v;
+            else bits[si] &= ~v;
+            return this;
+        }
+        if (val) {
+            bits[si] |= sv;
+            bits[ei] |= ev;
+        } else {
+            bits[si] &= ~sv;
+            bits[ei] &= ~ev;
+        }
+        return this;
+    }
+
+    /**
+     * 设置第几个字节上的数据为给定的值。
+     * 对于int类型数据，只有最后一个字节上的数据为有效数据。
+     *
+     * @param nth 第几个字节，从0开始
+     * @param val 设置的值
+     * @return 返回this, 以便链式调用
+     */
+    public BitArray setNthByte(int nth, int val) {
+        return setNthByte(nth, (byte) val);
     }
 
     /**
@@ -245,16 +300,20 @@ public class BitArray implements Cloneable, Serializable {
         return this;
     }
 
-    /**
-     * 设置第几个字节上的数据为给定的值。
-     * 对于int类型数据，只有最后一个字节上的数据为有效数据。
-     *
-     * @param nth 第几个字节，从0开始
-     * @param val 设置的值
-     * @return 返回this, 以便链式调用
-     */
-    public BitArray setNthByte(int nth, int val) {
-        return setNthByte(nth, (byte) val);
+    public BitArray setRangeByte(int start, int end, int val) {
+        return setRangeByte(start, end, (byte) val);
+    }
+
+    public BitArray setRangeByte(int start, int end, byte val) {
+        edgeCheck(start, end);
+        if (end >= bits.length) {
+            size = end << PER_BIT_OF_POWER;
+            resize(end);
+        }
+        for (; start < end; start++) {
+            bits[start] = val;
+        }
+        return this;
     }
 
     //扩容操作，target为目标字节数长度，默认用0填充
@@ -269,8 +328,8 @@ public class BitArray implements Cloneable, Serializable {
      * @return 对应的值，true为1，false为0
      */
     public boolean get(int pos) {
-        if (pos > size)
-            throw new IndexOutOfBoundsException("获取比特位：" + pos + ",但实际只有" + size);
+        if (pos >= size)
+            throw new IndexOutOfBoundsException("获取比特位：" + pos + ",但实际只有：" + size);
         int index = pos >> PER_BIT_OF_POWER;
         int bitIndex = pos & (PER_BIT - 1);
         return getFromByte(bitIndex, bits[index]);
@@ -291,13 +350,20 @@ public class BitArray implements Cloneable, Serializable {
      * 获取第几个字节上的数据
      *
      * @param nth 第几个字节，从0开始
-     * @return 对应的byte数据, 由于byte的最高位为符号位，
-     * 所以如果需要获取到其对应的数字表示且最高位不作为符号位时，应使用int类型接收
+     * @return 对应的byte数据, int类型
      */
-    public byte getNthByte(int nth) {
+    public int getNthByte(int nth) {
         if (nth > bits.length)
             throw new IndexOutOfBoundsException("获取字节位：" + nth + ",但实际只有 " + bits.length);
-        return bits[nth];
+        //当最高位为1时，在byte自动转成int时，由于符号位的变化，会出现bit位数据错误
+        return bits[nth] & 0xff;
+    }
+
+    public byte[] getRangeByte(int start, int end) {
+        edgeCheck(start, end);
+        if (end > bits.length)
+            throw new IndexOutOfBoundsException();
+        return Arrays.copyOfRange(bits, start, end);
     }
 
     /**
@@ -325,7 +391,7 @@ public class BitArray implements Cloneable, Serializable {
 
         for (int i = 0; i < fByteSize; i++) {
             byte f = bits[i], s = 0x00;
-            if (i < sByteSize) s = bitArray.getNthByte(i);
+            if (i < sByteSize) s = (byte) bitArray.getNthByte(i);
 
             bits[i] = (byte) operation.operate(f, s);
         }
@@ -451,5 +517,19 @@ public class BitArray implements Cloneable, Serializable {
                 //删除开头的空格
                 .delete(0, 1)
                 .toString();
+    }
+
+    private void edgeCheck(int start, int end) {
+        if (start >= end)
+            throw new IllegalArgumentException("start:" + start + " 必须小于end:" + end);
+        if (start < 0)
+            throw new IllegalArgumentException("start: " + start + " 不能小于0");
+    }
+
+    @Override
+    protected BitArray clone() throws CloneNotSupportedException {
+        BitArray clone = (BitArray) super.clone();
+        clone.bits = bits.clone();
+        return clone;
     }
 }
